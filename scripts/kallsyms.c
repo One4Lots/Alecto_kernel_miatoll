@@ -24,11 +24,9 @@
 #include <ctype.h>
 #include <limits.h>
 
-#ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
-#endif
 
-#define KSYM_NAME_LEN		192
+#define KSYM_NAME_LEN		256
 
 struct sym_entry {
 	unsigned long long addr;
@@ -285,6 +283,30 @@ static int symbol_valid(struct sym_entry *s)
 	return 1;
 }
 
+/* remove all the invalid symbols from the table */
+static void shrink_table(void)
+{
+	unsigned int i, pos;
+
+	pos = 0;
+	for (i = 0; i < table_cnt; i++) {
+		if (symbol_valid(&table[i])) {
+			if (pos != i)
+				table[pos] = table[i];
+			pos++;
+		} else {
+			free(table[i].sym);
+		}
+	}
+	table_cnt = pos;
+
+	/* When valid symbol is not registered, exit to error */
+	if (!table_cnt) {
+		fprintf(stderr, "No valid symbol.\n");
+		exit(1);
+	}
+}
+
 static void read_map(FILE *in)
 {
 	while (!feof(in)) {
@@ -358,10 +380,10 @@ static void write_src(void)
 	printf("#include <asm/types.h>\n");
 	printf("#if BITS_PER_LONG == 64\n");
 	printf("#define PTR .quad\n");
-	printf("#define ALGN .align 8\n");
+	printf("#define ALGN .balign 8\n");
 	printf("#else\n");
 	printf("#define PTR .long\n");
-	printf("#define ALGN .align 4\n");
+	printf("#define ALGN .balign 4\n");
 	printf("#endif\n");
 
 	printf("\t.section .rodata, \"a\"\n");
@@ -427,7 +449,7 @@ static void write_src(void)
 	}
 
 	output_label("kallsyms_num_syms");
-	printf("\tPTR\t%d\n", table_cnt);
+	printf("\t.long\t%u\n", table_cnt);
 	printf("\n");
 
 	/* table of offset markers, that give the offset in the compressed stream
@@ -456,7 +478,7 @@ static void write_src(void)
 
 	output_label("kallsyms_markers");
 	for (i = 0; i < ((table_cnt + 255) >> 8); i++)
-		printf("\tPTR\t%d\n", markers[i]);
+		printf("\t.long\t%u\n", markers[i]);
 	printf("\n");
 
 	free(markers);
@@ -498,23 +520,13 @@ static void forget_symbol(unsigned char *symbol, int len)
 		token_profit[ symbol[i] + (symbol[i + 1] << 8) ]--;
 }
 
-/* remove all the invalid symbols from the table and do the initial token count */
+/* do the initial token count */
 static void build_initial_tok_table(void)
 {
-	unsigned int i, pos;
+	unsigned int i;
 
-	pos = 0;
-	for (i = 0; i < table_cnt; i++) {
-		if ( symbol_valid(&table[i]) ) {
-			if (pos != i)
-				table[pos] = table[i];
-			learn_symbol(table[pos].sym, table[pos].len);
-			pos++;
-		} else {
-			free(table[i].sym);
-		}
-	}
-	table_cnt = pos;
+	for (i = 0; i < table_cnt; i++)
+		learn_symbol(table[i].sym, table[i].len);
 }
 
 static void *find_token(unsigned char *str, int len, unsigned char *token)
@@ -640,12 +652,6 @@ static void optimize_token_table(void)
 
 	insert_real_symbols_in_table();
 
-	/* When valid symbol is not registered, exit to error */
-	if (!table_cnt) {
-		fprintf(stderr, "No valid symbol.\n");
-		exit(1);
-	}
-
 	optimize_result();
 }
 
@@ -757,11 +763,15 @@ static void record_relative_base(void)
 {
 	unsigned int i;
 
-	relative_base = -1ULL;
 	for (i = 0; i < table_cnt; i++)
-		if (!symbol_absolute(&table[i]) &&
-		    table[i].addr < relative_base)
+		if (!symbol_absolute(&table[i])) {
+			/*
+			 * The table is sorted by address.
+			 * Take the first non-absolute symbol value.
+			 */
 			relative_base = table[i].addr;
+			return;
+		}
 }
 
 int main(int argc, char **argv)
@@ -788,11 +798,12 @@ int main(int argc, char **argv)
 		usage();
 
 	read_map(stdin);
+	shrink_table();
 	if (absolute_percpu)
 		make_percpus_absolute();
+	sort_symbols();
 	if (base_relative)
 		record_relative_base();
-	sort_symbols();
 	optimize_token_table();
 	write_src();
 

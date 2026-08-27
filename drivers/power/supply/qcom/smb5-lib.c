@@ -58,7 +58,7 @@ EXPORT_SYMBOL(g_touchscreen_usb_pulgin);
 #define smblib_dbg(chg, reason, fmt, ...)			\
 	do {							\
 		if (*chg->debug_mask & (reason))		\
-			pr_info("%s: %s: " fmt, chg->name,	\
+			pr_debug("%s: %s: " fmt, chg->name,	\
 				__func__, ##__VA_ARGS__);	\
 		else						\
 			pr_debug("%s: %s: " fmt, chg->name,	\
@@ -1599,7 +1599,7 @@ void smblib_suspend_on_debug_battery(struct smb_charger *chg)
 		vote(chg->usb_icl_votable, DEBUG_BOARD_VOTER, val.intval, 0);
 		vote(chg->dc_suspend_votable, DEBUG_BOARD_VOTER, val.intval, 0);
 		if (val.intval)
-			pr_info("Input suspended: Fake battery\n");
+			pr_debug("Input suspended: Fake battery\n");
 	} else {
 		vote(chg->chg_disable_votable, DEBUG_BOARD_VOTER,
 					val.intval, 0);
@@ -1986,7 +1986,7 @@ static int smblib_awake_vote_callback(struct votable *votable, void *data,
 	struct smb_charger *chg = data;
 
 	if (awake)
-		pm_stay_awake(chg->dev);
+		pm_wakeup_event(chg->dev, 500);
 	else
 		pm_relax(chg->dev);
 
@@ -2959,9 +2959,9 @@ static int smblib_therm_charging(struct smb_charger *chg)
 			pr_err("Couldn't disable USB thermal ICL vote rc=%d\n",
 				rc);
 	} else {
-		pr_info("thermal_icl_ua is %d, chg->system_temp_level: %d\n",
+		pr_debug("thermal_icl_ua is %d, chg->system_temp_level: %d\n",
 				thermal_icl_ua, chg->system_temp_level);
-		pr_info("thermal_fcc_ua is %d\n", thermal_fcc_ua);
+		pr_debug("thermal_fcc_ua is %d\n", thermal_fcc_ua);
 
 		if (chg->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP_3
 			|| chg->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP_3P5
@@ -3530,7 +3530,7 @@ static int smblib_set_sw_thermal_regulation(struct smb_charger *chg,
 						SW_THERM_REGULATION_VOTER)) {
 			vote(chg->awake_votable, SW_THERM_REGULATION_VOTER,
 								true, 0);
-			schedule_delayed_work(&chg->thermal_regulation_work, 0);
+			queue_delayed_work(system_power_efficient_wq, &chg->thermal_regulation_work, 0);
 		}
 	} else {
 		cancel_delayed_work_sync(&chg->thermal_regulation_work);
@@ -3745,7 +3745,7 @@ exit:
 	 */
 	if (is_client_vote_enabled(chg->usb_icl_votable,
 					SW_THERM_REGULATION_VOTER)) {
-		schedule_delayed_work(&chg->thermal_regulation_work,
+		queue_delayed_work(system_power_efficient_wq, &chg->thermal_regulation_work,
 				msecs_to_jiffies(THERM_REG_RECHECK_DELAY_1S));
 		return 0;
 	}
@@ -5221,7 +5221,7 @@ int smblib_set_prop_typec_power_role(struct smb_charger *chg,
 	if (!chg->pr_lock_in_progress && is_pr_lock) {
 		smblib_dbg(chg, PR_MISC, "disable type-c interrupts for power role locking\n");
 		smblib_typec_irq_config(chg, false);
-		schedule_delayed_work(&chg->pr_lock_clear_work,
+		queue_delayed_work(system_power_efficient_wq, &chg->pr_lock_clear_work,
 					msecs_to_jiffies(PR_LOCK_TIMEOUT_MS));
 	} else if (chg->pr_lock_in_progress && !is_pr_lock) {
 		smblib_dbg(chg, PR_MISC, "restore type-c interrupts after exit power role locking\n");
@@ -6057,7 +6057,7 @@ unsuspend_input:
 					rc);
 
 
-		pr_info("qc2_unsupported charger detected\n");
+		pr_debug("qc2_unsupported charger detected\n");
 		rc = smblib_force_vbus_voltage(chg, FORCE_5V_BIT);
 		if (rc < 0)
 			pr_err("Failed to force 5V\n");
@@ -6122,7 +6122,7 @@ irqreturn_t icl_change_irq_handler(int irq, void *data)
 			delay = 0;
 
 		cancel_delayed_work_sync(&chg->icl_change_work);
-		schedule_delayed_work(&chg->icl_change_work,
+ 		queue_delayed_work(system_power_efficient_wq, &chg->icl_change_work,
 						msecs_to_jiffies(delay));
 	}
 
@@ -6286,7 +6286,7 @@ void smblib_usb_plugin_locked(struct smb_charger *chg)
 
 		/* Schedule work to enable parallel charger */
 		vote(chg->awake_votable, PL_DELAY_VOTER, true, 0);
-		schedule_delayed_work(&chg->pl_enable_work,
+ 		queue_delayed_work(system_power_efficient_wq, &chg->pl_enable_work,
 					msecs_to_jiffies(PL_DELAY_MS));
 		schedule_delayed_work(&chg->charger_type_recheck,
 					msecs_to_jiffies(CHARGER_RECHECK_DELAY_MS));
@@ -6668,7 +6668,7 @@ static void smblib_raise_qc3_vbus_work(struct work_struct *work)
 		}
 
 		usb_present = val.intval;
-		pr_info("usb_present is %d\n", usb_present);
+		pr_debug("usb_present is %d\n", usb_present);
 		if (!usb_present) {
 			chg->raise_vbus_to_detect = false;
 			rc = smblib_force_vbus_voltage(chg, FORCE_5V_BIT);
@@ -6681,7 +6681,7 @@ static void smblib_raise_qc3_vbus_work(struct work_struct *work)
 		if (rc < 0)
 			pr_err("Couldn't get usb voltage rc=%d\n", rc);
 		vbus_now = val.intval;
-		pr_info("vbus_now is %d\n", vbus_now);
+		pr_debug("vbus_now is %d\n", vbus_now);
 
 		if (chg->snk_debug_acc_detected && usb_present)
 			vol_qc_ab_thr = VOL_THR_FOR_QC_CLASS_AB
@@ -6691,7 +6691,7 @@ static void smblib_raise_qc3_vbus_work(struct work_struct *work)
 
 		if (vbus_now <= vol_qc_ab_thr
 					|| chg->batt_profile_fcc_ua <= QC_CLASS_A_CURRENT_UA) {
-			pr_info("qc_class_a charger is detected\n");
+			pr_debug("qc_class_a charger is detected\n");
 			chg->is_qc_class_a = true;
 			vote(chg->fcc_votable,
 					CLASSA_QC_FCC_VOTER, true, QC_CLASS_A_CURRENT_UA);
@@ -6866,7 +6866,7 @@ static void smblib_handle_hvdcp_3p0_auth_done(struct smb_charger *chg,
 		}
 	} else if ((apsd_result->bit & QC_2P0_BIT)
 			&& (!chg->qc2_unsupported)) {
-		pr_info("force 9V for QC2 charger\n");
+		pr_debug("force 9V for QC2 charger\n");
 		rc = smblib_force_vbus_voltage(chg, FORCE_9V_BIT);
 		if (rc < 0)
 			pr_err("Failed to force 9V\n");
@@ -7546,7 +7546,7 @@ static void smblib_lpd_launch_ra_open_work(struct smb_charger *chg)
 		chg->lpd_stage = LPD_STAGE_FLOAT;
 		cancel_delayed_work_sync(&chg->lpd_ra_open_work);
 		vote(chg->awake_votable, LPD_VOTER, true, 0);
-		schedule_delayed_work(&chg->lpd_ra_open_work,
+		queue_delayed_work(system_power_efficient_wq, &chg->lpd_ra_open_work,
 						msecs_to_jiffies(300));
 	}
 }
@@ -7576,7 +7576,7 @@ irqreturn_t typec_or_rid_detection_change_irq_handler(int irq, void *data)
 		if (!chg->moisture_present) {
 			vote(chg->awake_votable, OTG_DELAY_VOTER, true, 0);
 			smblib_dbg(chg, PR_INTERRUPT, "Scheduling OTG work\n");
-			schedule_delayed_work(&chg->uusb_otg_work,
+ 			queue_delayed_work(system_power_efficient_wq, &chg->uusb_otg_work,
 				msecs_to_jiffies(chg->otg_delay_ms));
 		}
 
@@ -7707,7 +7707,7 @@ irqreturn_t typec_attach_detach_irq_handler(int irq, void *data)
 		}
 
 		if (chg->lpd_stage == LPD_STAGE_FLOAT_CANCEL)
-			schedule_delayed_work(&chg->lpd_detach_work,
+			queue_delayed_work(system_power_efficient_wq, &chg->lpd_detach_work,
 					msecs_to_jiffies(1000));
 	}
 
@@ -7964,7 +7964,7 @@ irqreturn_t high_duty_cycle_irq_handler(int irq, void *data)
 	 */
 	vote(chg->hdc_irq_disable_votable, HDC_IRQ_VOTER, true, 0);
 
-	schedule_delayed_work(&chg->clear_hdc_work, msecs_to_jiffies(60));
+ 	queue_delayed_work(system_power_efficient_wq, &chg->clear_hdc_work, msecs_to_jiffies(60));
 
 	return IRQ_HANDLED;
 }
@@ -8030,7 +8030,7 @@ irqreturn_t switcher_power_ok_irq_handler(int irq, void *data)
 			 * permanently suspending the input if the boost-back
 			 * condition is unintentionally hit.
 			 */
-			schedule_delayed_work(&chg->bb_removal_work,
+			queue_delayed_work(system_power_efficient_wq,&chg->bb_removal_work,
 				msecs_to_jiffies(BOOST_BACK_UNVOTE_DELAY_MS));
 		}
 	}
@@ -8048,7 +8048,7 @@ irqreturn_t wdog_snarl_irq_handler(int irq, void *data)
 	if (chg->wa_flags & SW_THERM_REGULATION_WA) {
 		cancel_delayed_work_sync(&chg->thermal_regulation_work);
 		vote(chg->awake_votable, SW_THERM_REGULATION_VOTER, true, 0);
-		schedule_delayed_work(&chg->thermal_regulation_work, 0);
+		queue_delayed_work(system_power_efficient_wq, &chg->thermal_regulation_work, 0);
 	}
 
 	if (chg->step_chg_enabled)
@@ -8329,7 +8329,7 @@ irqreturn_t usbin_ov_irq_handler(int irq, void *data)
 	if (stat & USBIN_OV_RT_STS_BIT) {
 		chg->dbc_usbov = true;
 		vote(chg->awake_votable, USBOV_DBC_VOTER, true, 0);
-		schedule_delayed_work(&chg->usbov_dbc_work,
+ 		queue_delayed_work(system_power_efficient_wq, &chg->usbov_dbc_work,
 				msecs_to_jiffies(USB_OV_DBC_PERIOD_MS));
 	} else {
 		cancel_delayed_work_sync(&chg->usbov_dbc_work);
@@ -8368,7 +8368,7 @@ int smblib_set_prop_pr_swap_in_progress(struct smb_charger *chg,
 	if (!chg->pr_swap_in_progress) {
 		cancel_delayed_work_sync(&chg->pr_swap_detach_work);
 		vote(chg->awake_votable, DETACH_DETECT_VOTER, true, 0);
-		schedule_delayed_work(&chg->pr_swap_detach_work,
+		queue_delayed_work(system_power_efficient_wq, &chg->pr_swap_detach_work,
 				msecs_to_jiffies(DETACH_DETECT_DELAY_MS));
 	}
 

@@ -3228,30 +3228,6 @@ void hdd_wlan_list_fw_profile(uint16_t *length,
 	*length = len + 1;
 }
 
-#define HDD_DUMP_STAT_HELP(STAT_ID) \
-	hdd_nofl_info("%u -- %s", STAT_ID, (# STAT_ID))
-/**
- * hdd_display_stats_help() - print statistics help
- *
- * Return: none
- */
-static void hdd_display_stats_help(void)
-{
-	hdd_nofl_info("iwpriv wlan0 dumpStats [option] - dump statistics");
-	hdd_nofl_info("iwpriv wlan0 clearStats [option] - clear statistics");
-	hdd_nofl_info("options:");
-	HDD_DUMP_STAT_HELP(CDP_TXRX_PATH_STATS);
-	HDD_DUMP_STAT_HELP(CDP_TXRX_HIST_STATS);
-	HDD_DUMP_STAT_HELP(CDP_TXRX_TSO_STATS);
-	HDD_DUMP_STAT_HELP(CDP_HDD_NETIF_OPER_HISTORY);
-	HDD_DUMP_STAT_HELP(CDP_DUMP_TX_FLOW_POOL_INFO);
-	HDD_DUMP_STAT_HELP(CDP_TXRX_DESC_STATS);
-	HDD_DUMP_STAT_HELP(CDP_HIF_STATS);
-	HDD_DUMP_STAT_HELP(CDP_NAPI_STATS);
-	HDD_DUMP_STAT_HELP(CDP_DP_NAPI_STATS);
-	HDD_DUMP_STAT_HELP(CDP_DP_RX_THREAD_STATS);
-}
-
 /**
  * hdd_wlan_dump_stats() - display dump Stats
  * @adapter: adapter handle
@@ -3262,6 +3238,7 @@ static void hdd_display_stats_help(void)
 int hdd_wlan_dump_stats(struct hdd_adapter *adapter, int value)
 {
 	int ret = 0;
+#ifdef WLAN_DEBUG
 	QDF_STATUS status;
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 
@@ -3304,6 +3281,7 @@ int hdd_wlan_dump_stats(struct hdd_adapter *adapter, int value)
 		}
 		break;
 	}
+#endif
 	return ret;
 }
 
@@ -3319,8 +3297,10 @@ static QDF_STATUS hdd_wlan_get_ibss_peer_info_all(struct hdd_adapter *adapter)
 {
 	QDF_STATUS status = QDF_STATUS_E_FAILURE;
 	mac_handle_t mac_handle = adapter->hdd_ctx->mac_handle;
+#ifdef WLAN_DEBUG
 	struct hdd_station_ctx *sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
 	tSirPeerInfoRspParams *peer_info = &sta_ctx->ibss_peer_info;
+#endif
 	struct qdf_mac_addr bcast = QDF_MAC_ADDR_BCAST_INIT;
 	int i;
 
@@ -3340,6 +3320,7 @@ static QDF_STATUS hdd_wlan_get_ibss_peer_info_all(struct hdd_adapter *adapter)
 			return QDF_STATUS_E_FAILURE;
 		}
 
+#ifdef WLAN_DEBUG
 		/** Print the peer info */
 		hdd_debug("peer_info->numIBSSPeers = %d ",
 			(int)peer_info->numPeers);
@@ -3356,6 +3337,7 @@ static QDF_STATUS hdd_wlan_get_ibss_peer_info_all(struct hdd_adapter *adapter)
 				QDF_MAC_ADDR_REF(mac_addr), (int)tx_rate,
 				(int)peer_info->peerInfoParams[i].rssi);
 		}
+#endif
 	} else {
 		hdd_warn("Warning: sme_request_ibss_peer_info Request failed");
 	}

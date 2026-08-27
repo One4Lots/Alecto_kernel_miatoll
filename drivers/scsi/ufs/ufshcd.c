@@ -766,22 +766,6 @@ static void ufshcd_cmd_log_init(struct ufs_hba *hba)
 {
 }
 
-static void __ufshcd_cmd_log(struct ufs_hba *hba, char *str, char *cmd_type,
-			     unsigned int tag, u8 cmd_id, u8 idn, u8 lun,
-			     sector_t lba, int transfer_len)
-{
-	struct ufshcd_cmd_log_entry entry;
-
-	entry.str = str;
-	entry.lba = lba;
-	entry.cmd_id = cmd_id;
-	entry.transfer_len = transfer_len;
-	entry.doorbell = ufshcd_readl(hba, REG_UTP_TRANSFER_REQ_DOOR_BELL);
-	entry.tag = tag;
-
-	ufshcd_add_command_trace(hba, &entry);
-}
-
 static void ufshcd_dme_cmd_log(struct ufs_hba *hba, char *str, u8 cmd_id)
 {
 }
@@ -2983,8 +2967,7 @@ static void ufshcd_init_hibern8_on_idle(struct ufs_hba *hba)
 	/* initialize the state variable here */
 	hba->hibern8_on_idle.state = HIBERN8_EXITED;
 
-	if (!ufshcd_is_hibern8_on_idle_allowed(hba) &&
-	    !ufshcd_is_auto_hibern8_supported(hba))
+	if (!ufshcd_is_hibern8_on_idle_allowed(hba))
 		return;
 
 	if (ufshcd_is_auto_hibern8_supported(hba)) {

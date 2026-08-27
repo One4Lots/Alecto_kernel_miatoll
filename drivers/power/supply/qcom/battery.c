@@ -131,7 +131,7 @@ module_param_named(debug_mask, debug_mask, int, 0600);
 #define pl_dbg(chip, reason, fmt, ...)				\
 	do {								\
 		if (debug_mask & (reason))				\
-			pr_info(fmt, ##__VA_ARGS__);	\
+			pr_debug(fmt, ##__VA_ARGS__);	\
 		else							\
 			pr_debug(fmt, ##__VA_ARGS__);		\
 	} while (0)
@@ -1211,7 +1211,7 @@ stepper_exit:
 	cp_configure_ilim(chip, FCC_VOTER, chip->slave_fcc_ua / 2);
 
 	if (reschedule_ms) {
-		schedule_delayed_work(&chip->fcc_stepper_work,
+		queue_delayed_work(system_power_efficient_wq, &chip->fcc_stepper_work,
 				msecs_to_jiffies(reschedule_ms));
 		pr_debug("Rescheduling FCC_STEPPER work\n");
 		return;
@@ -1328,7 +1328,7 @@ static int usb_icl_vote_callback(struct votable *votable, void *data,
 	if (icl_ua <= 1400000)
 		vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, false, 0);
 	else
-		schedule_delayed_work(&chip->status_change_work,
+		queue_delayed_work(system_power_efficient_wq, &chip->status_change_work,
 						msecs_to_jiffies(PL_DELAY_MS));
 
 	/* rerun AICL */
@@ -1440,7 +1440,7 @@ static int pl_disable_vote_callback(struct votable *votable,
 			return rc;
 
 		if (disable) {
-			pr_info("Parallel ICL is less than min ICL(%d), skipping parallel enable\n",
+			pr_debug("Parallel ICL is less than min ICL(%d), skipping parallel enable\n",
 					chip->pl_min_icl_ua);
 			return 0;
 		}
@@ -1469,7 +1469,7 @@ static int pl_disable_vote_callback(struct votable *votable,
 			if (chip->step_fcc) {
 				vote(chip->pl_awake_votable, FCC_STEPPER_VOTER,
 					true, 0);
-				schedule_delayed_work(&chip->fcc_stepper_work,
+				queue_delayed_work(system_power_efficient_wq, &chip->fcc_stepper_work,
 					0);
 			}
 		} else {
@@ -1604,7 +1604,7 @@ static int pl_disable_vote_callback(struct votable *votable,
 			if (chip->step_fcc) {
 				vote(chip->pl_awake_votable, FCC_STEPPER_VOTER,
 					true, 0);
-				schedule_delayed_work(&chip->fcc_stepper_work,
+				queue_delayed_work(system_power_efficient_wq, &chip->fcc_stepper_work,
 					0);
 			}
 		}
@@ -1641,7 +1641,7 @@ static int pl_awake_vote_callback(struct votable *votable,
 	struct pl_data *chip = data;
 
 	if (awake)
-		__pm_stay_awake(chip->pl_ws);
+		__pm_wakeup_event(chip->pl_ws, 500);
 	else
 		__pm_relax(chip->pl_ws);
 
@@ -1951,7 +1951,7 @@ static int pl_notifier_call(struct notifier_block *nb,
 	if ((strcmp(psy->desc->name, "parallel") == 0)
 	    || (strcmp(psy->desc->name, "battery") == 0)
 	    || (strcmp(psy->desc->name, "main") == 0))
-		schedule_delayed_work(&chip->status_change_work, 0);
+		queue_delayed_work(system_power_efficient_wq, &chip->status_change_work, 0);
 
 	return NOTIFY_OK;
 }

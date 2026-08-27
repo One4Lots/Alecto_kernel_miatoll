@@ -142,7 +142,7 @@ int freeze_processes(void)
 		__usermodehelper_set_disable_depth(UMH_DISABLED);
 		pr_debug("done.");
 	}
-	pr_cont("\n");
+	pr_debug("\n");
 	BUG_ON(in_atomic());
 
 	/*
@@ -178,7 +178,7 @@ int freeze_kernel_threads(void)
 	if (!error)
 		pr_debug("done.");
 
-	pr_cont("\n");
+	pr_debug("\n");
 	BUG_ON(in_atomic());
 
 	if (error)
@@ -229,7 +229,7 @@ void thaw_kernel_threads(void)
 	struct task_struct *g, *p;
 
 	pm_nosig_freezing = false;
-	pr_info("Restarting kernel threads ... ");
+	pr_debug("Restarting kernel threads ... ");
 
 	thaw_workqueues();
 

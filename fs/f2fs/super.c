@@ -1521,27 +1521,6 @@ static void destroy_device_list(struct f2fs_sb_info *sbi)
 	kvfree(sbi->devs);
 }
 
-static void f2fs_umount_end(struct super_block *sb, int flags)
-{
-	/*
-	 * this is called at the end of umount(2). If there is an unclosed
-	 * namespace, f2fs won't do put_super() which triggers fsck in the
-	 * next boot.
-	 */
-	if ((flags & MNT_FORCE) || atomic_read(&sb->s_active) > 1) {
-		/* to write the latest kbytes_written */
-		if (!(sb->s_flags & MS_RDONLY)) {
-			struct f2fs_sb_info *sbi = F2FS_SB(sb);
-			struct cp_control cpc = {
-				.reason = CP_UMOUNT,
-			};
-			down_write(&sbi->gc_lock);
-			f2fs_write_checkpoint(F2FS_SB(sb), &cpc);
-			up_write(&sbi->gc_lock);
-		}
-	}
-}
-
 static void f2fs_put_super(struct super_block *sb)
 {
 	struct f2fs_sb_info *sbi = F2FS_SB(sb);
@@ -2069,6 +2048,8 @@ static void default_options(struct f2fs_sb_info *sbi)
 	F2FS_OPTION(sbi).bggc_mode = BGGC_MODE_ON;
 	F2FS_OPTION(sbi).memory_mode = MEMORY_MODE_NORMAL;
 
+	set_opt(sbi, ATGC);
+	set_opt(sbi, GC_MERGE);
 	set_opt(sbi, INLINE_XATTR);
 	set_opt(sbi, INLINE_DATA);
 	set_opt(sbi, INLINE_DENTRY);
@@ -2760,14 +2741,22 @@ int f2fs_quota_sync(struct super_block *sb, int type)
 		 *  f2fs_dquot_commit
 		 *			      block_operation
 		 *			      f2fs_down_read(quota_sem)
+		 *
+		 * However, we cannot use the cp_rwsem to prevent this
+		 * deadlock, as the cp_rwsem is taken for read inside the
+		 * f2fs_dquot_commit code, and rwsem is not recursive.
+		 *
+		 * We therefore use a special lock to synchronize
+		 * f2fs_quota_sync with block_operations, as this is the only
+		 * place where such recursion occurs.
 		 */
-		f2fs_lock_op(sbi);
+		f2fs_down_read(&sbi->cp_quota_rwsem);
 		f2fs_down_read(&sbi->quota_sem);
 
 		ret = f2fs_quota_sync_file(sbi, cnt);
 
 		f2fs_up_read(&sbi->quota_sem);
-		f2fs_unlock_op(sbi);
+		f2fs_up_read(&sbi->cp_quota_rwsem);
 
 		if (!f2fs_sb_has_quota_ino(sbi))
 			inode_unlock(dqopt->files[cnt]);
@@ -3005,7 +2994,6 @@ static const struct super_operations f2fs_sops = {
 #endif
 	.evict_inode	= f2fs_evict_inode,
 	.put_super	= f2fs_put_super,
-	.umount_end	= f2fs_umount_end,
 	.sync_fs	= f2fs_sync_fs,
 	.freeze_fs	= f2fs_freeze,
 	.unfreeze_fs	= f2fs_unfreeze,
@@ -4138,6 +4126,7 @@ try_onemore:
 
 	init_f2fs_rwsem(&sbi->cp_rwsem);
 	init_f2fs_rwsem(&sbi->quota_sem);
+	init_f2fs_rwsem(&sbi->cp_quota_rwsem);
 	init_waitqueue_head(&sbi->cp_wait);
 	init_sb_info(sbi);
 

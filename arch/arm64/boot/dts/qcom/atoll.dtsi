@@ -577,12 +577,6 @@
 			size = <0 0x1000000>;
 		};
 
-		cdsp_sec_mem: cdsp_sec_regions@0x9f400000 {
-			compatible = "removed-dma-pool";
-			no-map;
-			reg = <0 0x9f400000 0 0x1e00000>;
-		};
-
 		secure_display_memory: secure_display_region {
 			compatible = "shared-dma-pool";
 			alloc-ranges = <0 0x00000000 0 0xffffffff>;
@@ -621,7 +615,7 @@
 	};
 
 	chosen {
-		bootargs = "rcupdate.rcu_expedited=1 rcu_nocbs=0-7 noirqdebug";
+		bootargs = "rcupdate.rcu_expedited=1 rcu_nocbs=0-7 quiet noirqdebug";
 	};
 
 	soc: soc { };
@@ -1401,7 +1395,7 @@
 		qcom,eud-clock-vote-req;
 		clocks = <&clock_gcc GCC_USB_PHY_CFG_AHB2PHY_CLK>;
 		clock-names = "eud_ahb2phy_clk";
-		status = "ok";
+		status = "disabled";
 	};
 
 	qcom,chd_sliver {

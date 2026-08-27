@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018-2019, 2021, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -231,11 +231,11 @@ static struct ipahal_stats_init_pyld *ipahal_generate_init_pyld_flt_rt_v4_5(
 	void *params, bool is_atomic_ctx)
 {
 	struct ipahal_stats_init_pyld *pyld;
-	long int num = (long int)(params);
+	int num = (uintptr_t)(params);
 
 	if (num > IPA_MAX_FLT_RT_CNT_INDEX ||
 		num <= 0) {
-		IPAHAL_ERR("num %ld not valid\n", num);
+		IPAHAL_ERR("num %d not valid\n", num);
 		return NULL;
 	}
 	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) +

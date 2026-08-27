@@ -36,7 +36,7 @@ Cross Compiling
 A single Clang compiler binary will typically contain all supported backends,
 which can help simplify cross compiling.
 
-	ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- make CC=clang
+	make ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-gnu-
 
 `CROSS_COMPILE` is not used to prefix the Clang compiler binary, instead
 `CROSS_COMPILE` is used to set a command line flag: `--target <triple>`. For

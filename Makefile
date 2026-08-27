@@ -122,6 +122,8 @@ export quiet Q KBUILD_VERBOSE
 # it is set on invocation of make with KBUILD_OUTPUT or O= specified.
 ifeq ($(KBUILD_SRC),)
 
+KBUILD_OUTPUT := out
+
 # OK, Make called in directory where kernel src resides
 # Do we want to locate output files in a separate directory?
 ifeq ("$(origin O)", "command line")
@@ -317,7 +319,7 @@ SUBARCH := $(shell uname -m | sed -e s/i.86/x86/ -e s/x86_64/x86/ \
 # "make" in the configured kernel build directory always uses that.
 # Default value for CROSS_COMPILE is not to prefix executables
 # Note: Some architectures assign CROSS_COMPILE in their arch/*/Makefile
-ARCH		?= $(SUBARCH)
+ARCH		:= arm64
 CROSS_COMPILE	?= $(CONFIG_CROSS_COMPILE:"%"=%)
 
 # Architecture as present in compile.h
@@ -375,9 +377,9 @@ else
 HOSTCC	= gcc
 HOSTCXX	= g++
 endif
-HOSTCFLAGS   := -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 \
+HOSTCFLAGS   := -Wall -Wmissing-prototypes -Wstrict-prototypes -O3 \
 		-fomit-frame-pointer -std=gnu89 $(HOST_LFS_CFLAGS)
-HOSTCXXFLAGS := -O2 $(HOST_LFS_CFLAGS)
+HOSTCXXFLAGS := -O3 $(HOST_LFS_CFLAGS)
 HOSTLDFLAGS  := $(HOST_LFS_LDFLAGS)
 HOST_LOADLIBES := $(HOST_LFS_LIBS)
 
@@ -730,6 +732,8 @@ endif
 LLVM_AR		:= llvm-ar
 LLVM_NM		:= llvm-nm
 export LLVM_AR LLVM_NM
+# Set O3 optimization level for LTO
+LDFLAGS		+= --plugin-opt=O3
 endif
 
 # The arch Makefile can set ARCH_{CPP,A,C}FLAGS to override the default
@@ -747,10 +751,32 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, int-in-bool-context)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, address-of-packed-member)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, attribute-alias)
 
+# Base Optimization Level
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS   += -Os
 else
-KBUILD_CFLAGS   += -O2
+KBUILD_CFLAGS   += -O3
+endif
+
+# GCC Specific Architecture & Tuning
+ifeq ($(cc-name),gcc)
+KBUILD_CFLAGS   += -march=armv8.2-a+crc+crypto+fp16+dotprod+rcpc+lse+rdm
+KBUILD_CFLAGS   += -mtune=cortex-a76.cortex-a55
+endif
+
+# Clang Specific Architecture  Tuning
+ifeq ($(cc-name),clang)
+KBUILD_CFLAGS   += -mcpu=cortex-a76 -mtune=cortex-a76 -march=armv8.2-a+crc+crypto+fp16+dotprod+rcpc+lse+rdm
+KBUILD_CFLAGS   += -funroll-loops
+
+KBUILD_AFLAGS   += -mcpu=cortex-a76 -mtune=cortex-a76 -march=armv8.2-a+crc+crypto+fp16+dotprod+rcpc+lse+rdm
+
+# Enable hot cold split optimization
+KBUILD_CFLAGS   += -mllvm -hot-cold-split=true
+# Enable MLGO optimizations for register allocation
+KBUILD_CFLAGS   += -mllvm -regalloc-enable-advisor=release
+KBUILD_LDFLAGS  += -mllvm -regalloc-enable-advisor=release
+KBUILD_LDFLAGS  += -mllvm -enable-ml-inliner=release
 endif
 
 # Tell gcc to never replace conditional load with a non-conditional one
@@ -803,6 +829,23 @@ endif
 KBUILD_CFLAGS += $(stackp-flag)
 
 ifeq ($(cc-name),clang)
+ifdef CONFIG_POLLY_CLANG
+KBUILD_CFLAGS	+= -mllvm -polly \
+		   -mllvm -polly-ast-use-context \
+		   -mllvm -polly-invariant-load-hoisting \
+		   -mllvm -polly-run-inliner \
+		   -mllvm -polly-vectorizer=stripmine \
+		   -mllvm -polly-loopfusion-greedy=1 \
+		   -mllvm -polly-reschedule=1 \
+		   -mllvm -polly-postopts=1
+# Polly may optimise loops with dead paths beyound what the linker
+# can understand. This may negate the effect of the linker's DCE
+# so we tell Polly to perfom proven DCE on the loops it optimises
+# in order to preserve the overall effect of the linker's DCE.
+ifdef CONFIG_LD_DEAD_CODE_DATA_ELIMINATION
+KBUILD_CFLAGS	+= -mllvm -polly-run-dce
+endif
+endif
 KBUILD_CFLAGS += $(call cc-disable-warning, format-invalid-specifier)
 KBUILD_CFLAGS += $(call cc-disable-warning, gnu)
 KBUILD_CFLAGS += $(call cc-disable-warning, duplicate-decl-specifier)
@@ -814,11 +857,13 @@ KBUILD_CFLAGS += $(call cc-option, -Wno-sometimes-uninitialized)
 # Quiet clang warning: comparison of unsigned expression < 0 is always false
 
 KBUILD_CFLAGS += $(call cc-disable-warning, tautological-compare)
+
+ifdef CONFIG_MODULES
 # CLANG uses a _MergedGlobals as optimization, but this breaks modpost, as the
 # source of a reference will be _MergedGlobals and not on of the whitelisted names.
 # See modpost pattern 2
 KBUILD_CFLAGS += $(call cc-option, -mno-global-merge,)
-KBUILD_CFLAGS += $(call cc-option, -fcatch-undefined-behavior)
+endif
 endif
 
 KBUILD_CFLAGS += $(call cc-option,-fno-delete-null-pointer-checks,)
@@ -919,19 +964,37 @@ KBUILD_CFLAGS	+= $(call cc-option,-fdata-sections,)
 endif
 
 ifdef CONFIG_LTO_CLANG
-ifdef CONFIG_THINLTO
-lto-clang-flags	:= -flto=thin
-LDFLAGS		+= --thinlto-cache-dir=.thinlto-cache
+KBUILD_LDFLAGS += -O3 --lto-O3 --plugin-opt=O3 --strip-debug
 else
-lto-clang-flags	:= -flto
+KBUILD_LDFLAGS += -O3 --strip-debug
 endif
-lto-clang-flags += -fvisibility=default $(call cc-option, -fsplit-lto-unit)
+
+ifeq ($(cc-name),clang)
+ifdef CONFIG_LTO_CLANG
+ifdef CONFIG_LTO_CLANG_THIN
+CC_FLAGS_LTO	+= -flto=thin -fsplit-lto-unit -funified-lto
+KBUILD_LDFLAGS	+= --thinlto-jobs=$(shell nproc 2>/dev/null || echo 8)
+KBUILD_LDFLAGS	+= --thinlto-cache-dir=$(abspath $(objtree))/.thinlto-cache
+lto-flags	:= -flto=thin
+else
+CC_FLAGS_LTO	+= -flto
+lto-flags	:= -flto
+endif
+CC_FLAGS_LTO	+= -fvisibility=hidden
+CC_FLAGS_LTO	+= $(call cc-option,-fsplit-machine-functions)
 
 # Limit inlining across translation units to reduce binary size
-LD_FLAGS_LTO_CLANG := -mllvm -import-instr-limit=5
+KBUILD_LDFLAGS += $(call cc-option,-mllvm -import-instr-limit=10)
+ifneq ($(CONFIG_FRAME_WARN),0)
+KBUILD_LDFLAGS	+= -plugin-opt=-warn-stack-size=$(CONFIG_FRAME_WARN)
+endif
 
-KBUILD_LDFLAGS += $(LD_FLAGS_LTO_CLANG)
-KBUILD_LDFLAGS_MODULE += $(LD_FLAGS_LTO_CLANG)
+ifdef CONFIG_LTO
+KBUILD_CFLAGS	+= $(CC_FLAGS_LTO)
+export CC_FLAGS_LTO
+LTO_CFLAGS	:= $(CC_FLAGS_LTO)
+export LTO_CFLAGS
+endif
 
 KBUILD_LDFLAGS_MODULE += -T scripts/module-lto.lds
 
@@ -939,13 +1002,11 @@ KBUILD_LDFLAGS_MODULE += -T scripts/module-lto.lds
 DISABLE_LTO_CLANG := -fno-lto
 export DISABLE_LTO_CLANG
 endif
+endif
 
 ifdef CONFIG_LTO
-LTO_CFLAGS	:= $(lto-clang-flags)
-KBUILD_CFLAGS	+= $(LTO_CFLAGS)
-
 DISABLE_LTO	:= $(DISABLE_LTO_CLANG)
-export LTO_CFLAGS DISABLE_LTO
+export DISABLE_LTO
 
 # LDFINAL_vmlinux and LDFLAGS_FINAL_vmlinux can be set to override
 # the linker and flags for vmlinux_link.
@@ -1013,20 +1074,8 @@ KBUILD_CFLAGS += $(call cc-disable-warning, maybe-uninitialized)
 # disable invalid "can't wrap" optimizations for signed / pointers
 KBUILD_CFLAGS	+= $(call cc-option,-fno-strict-overflow)
 
-# clang sets -fmerge-all-constants by default as optimization, but this
-# is non-conforming behavior for C and in fact breaks the kernel, so we
-# need to disable it here generally.
-KBUILD_CFLAGS	+= $(call cc-option,-fno-merge-all-constants)
-
-# for gcc -fno-merge-all-constants disables everything, but it is fine
-# to have actual conforming behavior enabled.
-KBUILD_CFLAGS	+= $(call cc-option,-fmerge-constants)
-
 # Make sure -fstack-check isn't enabled (like gentoo apparently did)
 KBUILD_CFLAGS  += $(call cc-option,-fno-stack-check,)
-
-# conserve stack if available
-KBUILD_CFLAGS   += $(call cc-option,-fconserve-stack)
 
 # disallow errors like 'EXPORT_GPL(foo);' with missing header
 KBUILD_CFLAGS   += $(call cc-option,-Werror=implicit-int)
@@ -1322,7 +1371,8 @@ endif
 endif
 
 # Disable clang-specific config options when using a different compiler
-clang-specific-configs := LTO_CLANG CFI_CLANG SHADOW_CALL_STACK INIT_STACK_ALL_ZERO
+clang-specific-configs := LTO_CLANG LTO_CLANG_THIN LTO_CLANG_FULL CFI_CLANG \
+			  SHADOW_CALL_STACK INIT_STACK_ALL_ZERO
 
 PHONY += check-clang-specific-options
 check-clang-specific-options: $(KCONFIG_CONFIG) FORCE
@@ -1580,7 +1630,7 @@ MRPROPER_FILES += .config .config.old .version .old_version \
 		  Module.symvers tags TAGS cscope* GPATH GTAGS GRTAGS GSYMS \
 		  signing_key.pem signing_key.priv signing_key.x509	\
 		  x509.genkey extra_certificates signing_key.x509.keyid	\
-		  signing_key.x509.signer vmlinux-gdb.py
+		  signing_key.x509.signer vmlinux-gdb.py .thinlto-cache
 
 # clean - Delete most, but leave enough to build external modules
 #

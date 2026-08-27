@@ -1141,8 +1141,10 @@ static int __ipa_wwan_open(struct net_device *dev)
 		reinit_completion(&wwan_ptr->resource_granted_completion);
 	wwan_ptr->device_status = WWAN_DEVICE_ACTIVE;
 
-	if (ipa3_rmnet_res.ipa_napi_enable)
+	if (ipa3_rmnet_res.ipa_napi_enable) {
+		dev_set_threaded(dev, true);
 		napi_enable(&(wwan_ptr->napi));
+	}
 	return 0;
 }
 
@@ -1242,7 +1244,7 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct ipa3_wwan_private *wwan_ptr = netdev_priv(dev);
 	unsigned long flags;
 
-	if (rmnet_ipa3_ctx->ipa_config_is_apq) {
+	if (unlikely(rmnet_ipa3_ctx->ipa_config_is_apq)) {
 		IPAWANERR_RL("IPA embedded data on APQ platform\n");
 		dev_kfree_skb_any(skb);
 		dev->stats.tx_dropped++;
@@ -1320,7 +1322,7 @@ send:
 		spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 		return NETDEV_TX_BUSY;
 	}
-	if (ret) {
+	if (unlikely(ret)) {
 		IPAWANERR("[%s] fatal: ipa rm timer req resource failed %d\n",
 		       dev->name, ret);
 		dev_kfree_skb_any(skb);
@@ -1342,7 +1344,7 @@ send:
 	 * IPA_CLIENT_Q6_WAN_CONS based on status configuration
 	 */
 	ret = ipa3_tx_dp(IPA_CLIENT_APPS_WAN_PROD, skb, NULL);
-	if (ret) {
+	if (unlikely(ret)) {
 		atomic_dec(&wwan_ptr->outstanding_pkts);
 		if (ret == -EPIPE) {
 			IPAWANERR_RL("[%s] fatal: pipe is not valid\n",
@@ -1450,7 +1452,7 @@ static void apps_ipa_packet_receive_notify(void *priv,
 {
 	struct net_device *dev = (struct net_device *)priv;
 
-	if (evt == IPA_RECEIVE) {
+	if (likely(evt == IPA_RECEIVE)) {
 		struct sk_buff *skb = (struct sk_buff *)data;
 		int result;
 		unsigned int packet_len = skb->len;
@@ -1474,7 +1476,7 @@ static void apps_ipa_packet_receive_notify(void *priv,
 			}
 		}
 
-		if (result)	{
+		if (unlikely(result))	{
 			pr_err_ratelimited(DEV_NAME " %s:%d fail on netif_receive_skb\n",
 							   __func__, __LINE__);
 			dev->stats.rx_dropped++;
@@ -2179,7 +2181,7 @@ static void ipa3_wwan_setup(struct net_device *dev)
 	dev->flags &= ~(IFF_BROADCAST | IFF_MULTICAST);
 	dev->needed_headroom = HEADROOM_FOR_QMAP;
 	dev->needed_tailroom = TAILROOM;
-	dev->watchdog_timeo = 1000;
+	dev->watchdog_timeo = 5000;
 }
 
 /* IPA_RM related functions start*/
@@ -3010,10 +3012,7 @@ static int rmnet_ipa_ap_suspend(struct device *dev)
 	}
 
 	/* Make sure that there is no Tx operation ongoing */
-	netif_stop_queue(netdev);
-	/* Stoppig Watch dog timer when pipe was in suspend state */
-	if (del_timer(&netdev->watchdog_timer))
-		dev_put(netdev);
+	netif_device_detach(netdev);
 	spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 
 	IPAWANDBG("De-activating the PM/RM resource.\n");
@@ -3045,10 +3044,8 @@ static int rmnet_ipa_ap_resume(struct device *dev)
 	/* Clear the suspend in progress flag. */
 	atomic_set(&rmnet_ipa3_ctx->ap_suspend, 0);
 	if (netdev) {
-		netif_wake_queue(netdev);
-		/* Starting Watch dog timer, pipe was changes to resume state */
-		if (netif_running(netdev) && netdev->watchdog_timeo <= 0)
-			__netdev_watchdog_up(netdev);
+		netif_device_attach(netdev);
+		netif_trans_update(netdev);
 	}
 	IPAWANDBG("Exit\n");
 
@@ -3068,8 +3065,8 @@ static const struct of_device_id rmnet_ipa_dt_match[] = {
 MODULE_DEVICE_TABLE(of, rmnet_ipa_dt_match);
 
 static const struct dev_pm_ops rmnet_ipa_pm_ops = {
-	.suspend_noirq = rmnet_ipa_ap_suspend,
-	.resume_noirq = rmnet_ipa_ap_resume,
+	.suspend_late = rmnet_ipa_ap_suspend,
+	.resume_early = rmnet_ipa_ap_resume,
 };
 
 static struct platform_driver rmnet_ipa_driver = {

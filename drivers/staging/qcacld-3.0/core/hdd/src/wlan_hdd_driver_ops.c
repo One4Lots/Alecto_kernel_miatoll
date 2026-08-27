@@ -724,7 +724,7 @@ static void __hdd_soc_remove(struct device *dev)
 	if (!hdd_ctx)
 		return;
 
-	pr_info("%s: Removing driver v%s\n", WLAN_MODULE_NAME,
+	pr_debug("%s: Removing driver v%s\n", WLAN_MODULE_NAME,
 		QWLAN_VERSIONSTR);
 
 	hif_ctx = cds_get_context(QDF_MODULE_ID_HIF);
@@ -754,7 +754,7 @@ static void __hdd_soc_remove(struct device *dev)
 	cds_set_driver_in_bad_state(false);
 	cds_set_unload_in_progress(false);
 
-	pr_info("%s: Driver De-initialized\n", WLAN_MODULE_NAME);
+	pr_debug("%s: Driver De-initialized\n", WLAN_MODULE_NAME);
 
 	dp_prealloc_deinit();
 }
@@ -1095,7 +1095,7 @@ static int __wlan_hdd_bus_suspend(struct wow_enable_params wow_params)
 	struct pmo_wow_enable_params pmo_params;
 	int pending;
 
-	hdd_info("starting bus suspend");
+	hdd_debug("starting bus suspend");
 
 	hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
 
@@ -1173,7 +1173,7 @@ static int __wlan_hdd_bus_suspend(struct wow_enable_params wow_params)
 	 */
 	pld_request_bus_bandwidth(hdd_ctx->parent_dev, PLD_BUS_WIDTH_NONE);
 
-	hdd_info("bus suspend succeeded");
+	hdd_debug("bus suspend succeeded");
 	return 0;
 
 resume_hif:
@@ -1312,7 +1312,7 @@ int wlan_hdd_bus_resume(void)
 	if (cds_is_driver_recovering())
 		return 0;
 
-	hdd_info("starting bus resume");
+	hdd_debug("starting bus resume");
 
 	if (!hdd_ctx) {
 		hdd_err_rl("hdd context is NULL");
@@ -1381,7 +1381,7 @@ int wlan_hdd_bus_resume(void)
 		goto out;
 	}
 
-	hdd_info("bus resume succeeded");
+	hdd_debug("bus resume succeeded");
 	return 0;
 
 out:

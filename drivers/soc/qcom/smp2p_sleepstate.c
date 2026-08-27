@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,10 +18,11 @@
 #include <linux/of_irq.h>
 #include <linux/of.h>
 #include <linux/pm_wakeup.h>
+#include <linux/delay.h>
 
 #define PROC_AWAKE_ID 12 /* 12th bit */
 #define AWAKE_BIT BIT(PROC_AWAKE_ID)
-static struct qcom_smem_state *state;
+struct qcom_smem_state *smem_state;
 struct wakeup_source notify_ws;
 
 /**
@@ -38,11 +39,10 @@ static int sleepstate_pm_notifier(struct notifier_block *nb,
 {
 	switch (event) {
 	case PM_SUSPEND_PREPARE:
-		qcom_smem_state_update_bits(state, AWAKE_BIT, 0);
+		usleep_range(10000, 10500); /* Tuned based on SMP2P latencies */
 		break;
 
 	case PM_POST_SUSPEND:
-		qcom_smem_state_update_bits(state, AWAKE_BIT, AWAKE_BIT);
 		break;
 	}
 
@@ -67,10 +67,10 @@ static int smp2p_sleepstate_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *node = dev->of_node;
 
-	state = qcom_smem_state_get(&pdev->dev, 0, &ret);
-	if (IS_ERR(state))
-		return PTR_ERR(state);
-	qcom_smem_state_update_bits(state, AWAKE_BIT, AWAKE_BIT);
+	smem_state = qcom_smem_state_get(&pdev->dev, 0, &ret);
+	if (IS_ERR(smem_state))
+		return PTR_ERR(smem_state);
+	qcom_smem_state_update_bits(smem_state, AWAKE_BIT, AWAKE_BIT);
 
 	ret = register_pm_notifier(&sleepstate_pm_nb);
 	if (ret)
@@ -89,7 +89,8 @@ static int smp2p_sleepstate_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "got smp2p-sleepstate-in irq %d\n", irq);
 	ret = devm_request_threaded_irq(dev, irq, NULL,
 		(irq_handler_t)smp2p_sleepstate_handler,
-		IRQF_TRIGGER_RISING, "smp2p_sleepstate", dev);
+		IRQF_ONESHOT | IRQF_TRIGGER_RISING,
+		"smp2p_sleepstate", dev);
 	if (ret) {
 		dev_err(&pdev->dev, "fail to register smp2p threaded_irq=%d\n",
 									irq);
